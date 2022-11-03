@@ -9,13 +9,12 @@ import numpy as np
 
 class MAPLE:
  
-    def __init__(self, X_train, MR_train, X_val, MR_val, fe_type = "rf", n_estimators = 200, max_features = 0.5, min_samples_leaf = 10, regularization = 0.001):
+    def __init__(self, X_train, MR_train, n_features = 100, fe_type = "rf", n_estimators = 200, 
+                    max_features = 0.5, min_samples_leaf = 10, regularization = 0.001):
         
         # Features and the target model response
         self.X_train = X_train
         self.MR_train = MR_train
-        self.X_val = X_val
-        self.MR_val = MR_val
         
         # Forest Ensemble Parameters
         self.n_estimators = n_estimators
@@ -30,7 +29,6 @@ class MAPLE:
         self.num_features = num_features
         num_train = X_train.shape[0]
         self.num_train = num_train
-        num_val = X_val.shape[0]
         
         # Fit a Forest Ensemble to the model response
         if fe_type == "rf":
@@ -46,9 +44,7 @@ class MAPLE:
         
         train_leaf_ids = fe.apply(X_train)
         self.train_leaf_ids = train_leaf_ids
-        
-        val_leaf_ids_list = fe.apply(X_val)
-        
+
         # Compute the feature importances: Non-normalized @ Root
         scores = np.zeros(num_features)
         if fe_type == "rf":
@@ -64,32 +60,7 @@ class MAPLE:
         self.feature_scores = scores
         mostImpFeats = np.argsort(-scores)
                 
-        # Find the number of features to use for MAPLE
-        retain_best = 0
-        rmse_best = np.inf
-        for retain in range(1, num_features + 1):
-            
-            # Drop less important features for local regression
-            X_train_p = np.delete(X_train, mostImpFeats[retain:], axis = 1)
-            X_val_p = np.delete(X_val, mostImpFeats[retain:], axis = 1)
-                        
-            lr_predictions = np.empty([num_val], dtype=float)
-            
-            for i in range(num_val):
-                
-                weights = self.training_point_weights(val_leaf_ids_list[i])
-                    
-                # Local linear model
-                lr_model = Ridge(alpha=regularization)
-                lr_model.fit(X_train_p, MR_train, weights)
-                lr_predictions[i] = lr_model.predict(X_val_p[i].reshape(1, -1))
-            
-            rmse_curr = np.sqrt(mean_squared_error(lr_predictions, MR_val))
-            
-            if rmse_curr < rmse_best:
-                rmse_best = rmse_curr
-                retain_best = retain
-                
+        retain_best = n_features
         self.retain = retain_best
         self.X = np.delete(X_train, mostImpFeats[retain_best:], axis = 1)
                 
@@ -133,7 +104,8 @@ class MAPLE:
     def predict(self, X):
         n = X.shape[0]
         pred = np.zeros(n)
-        for i in range(n):
+        from tqdm.auto import tqdm
+        for i in tqdm(range(n)):
             exp = self.explain(X[i, :])
             pred[i] = exp["pred"][0]
         return pred
@@ -159,4 +131,3 @@ class MAPLE:
             pred[i] = lr_model.predict(x)[0]
         
         return pred
-
